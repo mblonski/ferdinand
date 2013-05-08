@@ -1,0 +1,53 @@
+<html>
+<head>
+<title>Bubu</title>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript" src="underscore.js"></script>
+<script type="text/javascript" src="backbone.js"></script>
+<script type="text/javascript" src="backbone.modelbinder.js"></script>
+<script type="text/javascript" src="jsrender.js"></script>
+<script type="text/javascript" src="ferdinand.js"></script>
+</head>
+<style type="text/css">
+#rety {
+	width: 100px;
+	height: 100px;
+	background #F00;
+}
+</style>
+<body>
+
+<div id="rety">
+	<div id='xxx' />
+	<div id='yyy' />
+</div>
+
+<script type="text/javascript">
+
+var MyModel = Ferdinand.AbstractModel.extend({
+
+	defaults : {
+		attr : 'emptyme'
+	}
+
+});
+
+var MyView = Ferdinand.AbstractView.extend({
+	
+	el : '#rety',
+	
+	bindings : {
+		attr : '#xxx'
+	}
+	
+});
+
+
+var m = new MyModel({ attr : 'test' });
+var v = new MyView({ model : m });
+
+</script>
+
+
+</body>
+</html>

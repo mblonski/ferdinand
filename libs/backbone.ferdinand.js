@@ -1,12 +1,31 @@
-
+/*
+ *     This file is part of Front-Door.
+ *
+ *     Front-Door is free software: you can redistribute it and/or modify
+ *     it under the terms of the GNU General Public License as published by
+ *     the Free Software Foundation, either version 2 of the License, or
+ *     (at your option) any later version.
+ *
+ *     Front-Door is distributed in the hope that it will be useful,
+ *     but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *     GNU General Public License for more details.
+ *
+ *     You should have received a copy of the GNU General Public License
+ *     along with Front-Door.  If not, see <http://www.gnu.org/licenses/>.
+ */
 /*global Backbone, _, $, UIB, Drupal, console */
 
 (function(root) {
 
 	'use strict';
 
+	/**
+	 * Change backbone model binding attributes.
+	 */
+	Backbone.ModelBinding.Configuration.configureAllBindingAttributes("name");
 
-	var Ferdinand = {
+	var FD = {
 
 		debug : true,
 
@@ -37,7 +56,7 @@
 	/**
 	 * Initializable prototype.
 	 */
-	Ferdinand.Initializable = {
+	FD.Initializable = {
 
 		/**
 		 * Bind all methods to this.
@@ -58,7 +77,7 @@
 	/**
 	 * Static context storage.
 	 */
-	Ferdinand.ContextStorage = function() {
+	FD.ContextStorage = function() {
 
 		var ctx = { },
 
@@ -97,14 +116,14 @@
 
 	};
 	// argh, jslint didn't allow me to write this normally ;(
-	Ferdinand.ContextStorage = new Ferdinand.ContextStorage();
+	FD.ContextStorage = new FD.ContextStorage();
 
 	/**
 	 * Composite object. Composite consist of object and its parent object, so every time
 	 * when Composite instance is being created parent attribute has to be specified in
 	 * options hash.
 	 */
-	Ferdinand.Composite = {
+	FD.Composite = {
 
 		/**
 		 * This variable tell us that object is a composite (should have parent).
@@ -141,14 +160,14 @@
 	/**
 	 * Simple logging mechanism.
 	 */
-	Ferdinand.Log = {
+	FD.Log = {
 
 		/**
 		 * @access private
 		 */
 		_message : function(args, fun) {
 			args = Array.prototype.slice.call(args); // change arguments to array
-			if (typeof console !== 'undefined' && Ferdinand.debug) {
+			if (typeof console !== 'undefined' && FD.debug) {
 				console[fun].apply(console, args);
 			}
 		},
@@ -188,7 +207,7 @@
 	 * so it cannot be used globally for all queries, but in the case when you would like
 	 * to match root from $el, then you should extend your view with this hash.
 	 */
-	Ferdinand.TreeSelector = {
+	FD.TreeSelector = {
 
 		$ : function(selector) {
 			return this.$el.filter(selector).add(this.$el.find(selector));
@@ -198,7 +217,7 @@
 	/**
 	 * This is abstract backbone model.
 	 */
-	Ferdinand.AbstractModel = Backbone.Model.extend({
+	FD.AbstractModel = Backbone.Model.extend({
 
 		/**
 		 * In-sync attributes (not modified).
@@ -212,7 +231,7 @@
 
 		/**
 		 * True or false depending on the information if any add request is being
-		 * processed in this moment. Set to true before request is send to backend, and
+		 * processed in this moment. Set to true before request is send to PPBE, and
 		 * back to false when success or error comes back.
 		 */
 		processing : false,
@@ -261,7 +280,7 @@
 		},
 
 		/**
-		 * Reset model to it's initial state (set data which is in-sync with backend).
+		 * Reset model to it's initial state (set data which is in-sync with PPBE).
 		 *
 		 * @public
 		 */
@@ -279,7 +298,7 @@
 		},
 
 		/**
-		 * Set backup attributes (data which is in-sync with backend).
+		 * Set backup attributes (data which is in-sync with PPBE).
 		 *
 		 * @param attributes - hash of in-sync attributes to save
 		 * @public
@@ -289,7 +308,7 @@
 		},
 
 		/**
-		 * Get backup attributes (data which is in-sync with backend).
+		 * Get backup attributes (data which is in-sync with PPBE).
 		 *
 		 * @return in-sync attributes
 		 * @public
@@ -305,16 +324,15 @@
 		 * @public
 		 */
 		handleMessages : function(response) {
-			var messages = (response = response || { }).messages;
-			if (messages) {
-				Ferdinand.Log.info("TODO: handle messages", messages);
+			if ((response = response || { }).messages) {
+				UIB.message(response.messages);
 			} else {
-				Ferdinand.Log.warn("No messages in response");
+				FD.Log.warn("No messages in response");
 			}
 		},
 
 		/**
-		 * Function invoked for all Model's Ajax calls
+		 * Handle all Ajax calls
 		 *
 		 * @param url - short eg. 'synchronize' if url has same base as model or full path for different paths
 		 * @param options - array with options that can be passed to ajax() method of jQuery
@@ -379,7 +397,7 @@
 				self.handleMessages(response);
 				self.setBackups(data);
 
-				self.trigger("fetched", model, data, response);
+				self.trigger("fetched", data, response);
 
 				if (success) {
 					success(model, response);
@@ -408,7 +426,7 @@
 				error = null;
 
 			if (this.processing && this.ignoreWhenProcessing) {
-				Ferdinand.Log.warn('Ignore operation. Other request still in progress.', this);
+				FD.Log.warn('Ignore operation. Other request still in progress.', this);
 				return;
 			}
 
@@ -487,7 +505,7 @@
 		 */
 		parse: function(response, xhr) {
 			if (!response) {
-				Ferdinand.Log.error("Response cannot be undefined!");
+				FD.Log.error("Response cannot be undefined!");
 				return;
 			}
 			return response.data || { };
@@ -507,20 +525,20 @@
 		}
 
 	})
-	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);
+	.extend(FD.Initializable)
+	.extend(FD.ContextStorage);
 
 	/**
 	 * Compositre model used when one model is a child of other one - no data
 	 * relation - only logic and functional one.
 	 */
-	Ferdinand.CompositeModel = Ferdinand.AbstractModel.extend({
+	FD.CompositeModel = FD.AbstractModel.extend({
 
 		/**
 		 * Initialize composite model.
 		 */
 		initialize : function(attributes, options) {
-			this.superinit(Ferdinand.AbstractModel, attributes, options);
+			this.superinit(FD.AbstractModel, attributes, options);
 			this.initComposite(options);
 		},
 
@@ -531,7 +549,7 @@
 			this.set(this.parent().toJSON());
 		}
 
-	}).extend(Ferdinand.Composite).extend({
+	}).extend(FD.Composite).extend({
 
 		/**
 		 * Return parent or set new parent depending on the argument passed. It will
@@ -541,7 +559,7 @@
 			if (this.collection && this.collection.isComposite) {
 				return this.collection.parent();
 			} else {
-				return Ferdinand.Composite.parent.call(this, parent);
+				return FD.Composite.parent.call(this, parent);
 			}
 		}
 
@@ -550,7 +568,7 @@
 	/**
 	 * This is new abstract view for all Backbone views we will be using.
 	 */
-	Ferdinand.AbstractView = Backbone.View.extend({
+	FD.AbstractView = Backbone.View.extend({
 
 		tagName : 'none',
 
@@ -559,15 +577,6 @@
 		validator : null,
 
 		template : null,
-
-		bindings : null,
-		
-		/**
-		 * Model binder.
-		 *
-		 * @private
-		 */
-		binder : new Backbone.ModelBinder(),
 
 		initialize : function(options) {
 
@@ -581,7 +590,6 @@
 				});
 			}
 		},
-
 		initView : function(options) {
 			if (options) {
 				if (options.el) {
@@ -591,10 +599,8 @@
 					this.template = options.template;
 				}
 			}
-			if (this.model) {
-				if (this.model instanceof Function) {
-					this.model = new this.model();
-				}
+			if (this.model && this.model instanceof Function) {
+				this.model = new this.model();
 				this.bindModel();
 			}
 			if (this.collection && this.collection instanceof Function) {
@@ -610,11 +616,11 @@
 					offset   : [ -10, 0 ],
 					tipClass : "ui-tooltip-bottom",
 					events: {
-						def: "mouseenter, blur mouseleave"
+						def: "mouseenter,blur mouseleave"
 					}
 				});
 			} else {
-				Ferdinand.Log.error("jQuery Tooltip plugin is missing!");
+				FD.Log.error("jQuery Tooltip plugin is missing!");
 			}
 		},
 
@@ -623,8 +629,7 @@
 		},
 
 		bindModel : function() {
-			//Backbone.ModelBinding.bind(this);
-			this.binder.bind(this.model, this.el, this.bindings);
+			Backbone.ModelBinding.bind(this);
 			return this;
 		},
 
@@ -651,7 +656,7 @@
 			var html = null;
 
 			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
+				FD.Log.error('Template cannot be empty!');
 				return;
 			}
 
@@ -701,13 +706,13 @@
 		}
 
 	})
-	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);
+	.extend(FD.Initializable)
+	.extend(FD.ContextStorage);
 
 	/**
 	 * Tabs container view.
 	 */
-	Ferdinand.TabsContainerView = Ferdinand.AbstractView.extend({
+	FD.TabsContainerView = FD.AbstractView.extend({
 
 		/**
 		 * Are tabs loaded?
@@ -725,7 +730,7 @@
 		views : null,
 
 		initialize : function(options) {
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 			this.views = { };
 			UIB.on("toggling", this.onToggle); // bind toggling event so we can build tabs on row expansion
 		},
@@ -771,7 +776,7 @@
 						this.trigger("tabcreated", this.views[tabid]);
 
 					} else {
-						Ferdinand.Log.error("Prototype for tab '" + tabid + "' is undefined");
+						FD.Log.error("Prototype for tab '" + tabid + "' is undefined");
 					}
 				}
 			}
@@ -788,7 +793,7 @@
 		 */
 		render : function() {
 			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
+				FD.Log.error('Template cannot be empty!');
 				return;
 			}
 			this.setElement(this.template.render(this.model));
@@ -802,36 +807,36 @@
 	/**
 	 * Composite view.
 	 */
-	Ferdinand.CompositeView = Ferdinand.AbstractView.extend({
+	FD.CompositeView = FD.AbstractView.extend({
 
 		initialize: function(options) {
 
 			if (!options || !options.parent) {
-				Ferdinand.Log.error("Composite parent is required for Ferdinand.CompositeView");
+				FD.Log.error("Composite parent is required for FD.CompositeView");
 				return;
 			}
 
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 			this.initComposite(options);
 		}
 
-	}).extend(Ferdinand.Composite);
+	}).extend(FD.Composite);
 
 	/**
 	 * Single tab view.
 	 */
-	Ferdinand.TabView = Ferdinand.AbstractView.extend({
+	FD.TabView = FD.AbstractView.extend({
 
 		tabid : null,
 
 		initialize: function(options) {
 
 			if (!options || !options.parent) {
-				Ferdinand.Log.error("Composite parent is required for Ferdinand.TabView");
+				FD.Log.error("Composite parent is required for FD.TabView");
 				return;
 			}
 
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 			this.initComposite(options);
 			this.initTab(options);
 
@@ -840,7 +845,7 @@
 
 				// but if there is model it has to be composite
 				if (!this.model.isComposite) {
-					Ferdinand.Log.error("Ferdinand.TabView requires model to be composite");
+					FD.Log.error("FD.TabView requires model to be composite");
 					return;
 				}
 
@@ -854,7 +859,7 @@
 
 				// and it also have to be composite
 				if (!this.collection.isComposite) {
-					Ferdinand.Log.error("Ferdinand.TabView requires collection to be composite");
+					FD.Log.error("FD.TabView requires collection to be composite");
 					return;
 				}
 
@@ -870,7 +875,7 @@
 
 			// each tab required tabid to be initialized correctly
 			if (!options || !options.tabid) {
-				Ferdinand.Log.error("Attribute 'tabid' is required in Ferdinand.TabView initialization");
+				FD.Log.error("Attribute 'tabid' is required in FD.TabView initialization");
 				return;
 			}
 			this.tabid = options.tabid;
@@ -890,7 +895,7 @@
 
 		render : function() {
 			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
+				FD.Log.error('Template cannot be empty!');
 				return;
 			}
 			this.$el.html(this.template.render(this.model || { })).show();
@@ -902,12 +907,12 @@
 			return this;
 		}
 
-	}).extend(Ferdinand.Composite);
+	}).extend(FD.Composite);
 
 	/**
 	 * Abstract collection view.
 	 */
-	Ferdinand.AbstractCollectionView = Ferdinand.AbstractView.extend({
+	FD.AbstractCollectionView = FD.AbstractView.extend({
 
 		view : null,
 
@@ -917,7 +922,7 @@
 
 		initialize : function(options) {
 
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 
 			// get sub views constructor
 			this.view = options.view;
@@ -1010,7 +1015,7 @@
 	 * This is abstract application class to be used by all backbone
 	 * applications.
 	 */
-	Ferdinand.Application = Backbone.Router.extend({
+	FD.Application = Backbone.Router.extend({
 
 		name: 'default',
 
@@ -1040,7 +1045,7 @@
 				});
 				this.onRun();
 			} else {
-				Ferdinand.Log.error('Data property is empty inside "run" method. You need to add data property in child class');
+				FD.Log.error('Data property is empty inside "run" method. You need to add data property in child class');
 			}
 			return this;
 		},
@@ -1056,7 +1061,7 @@
 		 * Called after data fetch success. Has to be overriden by child classes.
 		 */
 		onLoad : function () {
-			Ferdinand.Log.warn('Method onLoad in Application has not been overriden');
+			FD.Log.warn('Method onLoad in Application has not been overriden');
 		},
 
 		onLoadError : function(model, xhr, options) {
@@ -1082,13 +1087,13 @@
 		}
 
 	})
-	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);
+	.extend(FD.Initializable)
+	.extend(FD.ContextStorage);
 
 	/**
 	 * Abstract collection
 	 */
-	Ferdinand.AbstractCollection = Backbone.Collection.extend({
+	FD.AbstractCollection = Backbone.Collection.extend({
 
 		/**
 		 * Construct me.
@@ -1162,29 +1167,29 @@
 		 * Build URL to get collection from.
 		 */
 		url: function() {
-			return Ferdinand.url(this.endpoint);
+			return FD.url(this.endpoint);
 		}
 
 	})
-	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);
+	.extend(FD.Initializable)
+	.extend(FD.ContextStorage);
 
 	/**
 	 * Composite collection.
 	 */
-	Ferdinand.CompositeCollection = Ferdinand.AbstractCollection.extend({
+	FD.CompositeCollection = FD.AbstractCollection.extend({
 
 		initialize : function(models, options) {
-			this.superinit(Ferdinand.AbstractCollection, models, options);
+			this.superinit(FD.AbstractCollection, models, options);
 			this.initComposite(options);
 		}
 
-	}).extend(Ferdinand.Composite);
+	}).extend(FD.Composite);
 
 	/**
 	 * Paged collection to be used when paging is required.
 	 */
-	Ferdinand.PagedCollection = Ferdinand.AbstractCollection.extend({
+	FD.PagedCollection = FD.AbstractCollection.extend({
 
 		/**
 		 * Current page number.
@@ -1220,7 +1225,7 @@
 		 * Construct me.
 		 */
 		initialize : function(options) {
-			this.superinit(Ferdinand.AbstractCollection, options);
+			this.superinit(FD.AbstractCollection, options);
 		},
 
 		/**
@@ -1242,7 +1247,7 @@
 					delete params[param];
 				}
 			}
-			return Ferdinand.url(this.endpoint) + '?' + $.param(params);
+			return FD.url(this.endpoint) + '?' + $.param(params);
 		},
 
 		/**
@@ -1301,7 +1306,7 @@
 				this.page = this.page + 1;
 				this.doFetch();
 			} else {
-				Ferdinand.Log.warn('This is last page');
+				FD.Log.warn('This is last page');
 			}
 		},
 
@@ -1313,7 +1318,7 @@
 				this.page = this.page - 1;
 				this.doFetch();
 			} else {
-				Ferdinand.Log.warn('This is firs page');
+				FD.Log.warn('This is firs page');
 			}
 		},
 
@@ -1327,29 +1332,29 @@
 		},
 
 		onPageLoad : function(data) {
-			Ferdinand.Log.info('Page ' + this.page + ' has been loaded');
+			FD.Log.info('Page ' + this.page + ' has been loaded');
 			this.trigger('pageload', this.pageInfo());
 		},
 
 		onPageLoadError : function() {
-			Ferdinand.Log.warn('Page ' + this.page + ' cannot be loaded');
+			FD.Log.warn('Page ' + this.page + ' cannot be loaded');
 			this.trigger('pageloaderror');
 		},
 
 		parse : function(resp) {
-			Ferdinand.AbstractCollection.prototype.parse.call(this, resp);
+			FD.AbstractCollection.prototype.parse.call(this, resp);
 			this.page = parseInt(resp.page, 10);
 			this.limit = parseInt(resp.limit, 10);
 			this.total = parseInt(resp.total, 10);
 			return resp.data;
 		}
 
-	}).extend(Ferdinand.Initializable);
+	}).extend(FD.Initializable);
 
 	/**
 	 * Pager view.
 	 */
-	Ferdinand.PagerView = Ferdinand.AbstractView.extend({
+	FD.PagerView = FD.AbstractView.extend({
 
 		name : null,
 
@@ -1361,9 +1366,9 @@
 
 		initialize : function(options) {
 
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 			if (!options || !options.name) {
-				Ferdinand.Log.error("Name attribute has to be specified");
+				FD.Log.error("Name attribute has to be specified");
 				return;
 			}
 
@@ -1398,7 +1403,7 @@
 			var element = $('.x-pager-links-' + this.name);
 
 			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
+				FD.Log.error('Template cannot be empty!');
 				return;
 			}
 
@@ -1437,13 +1442,13 @@
 
 	/**
 	 * Generic abstract view used to wrap functionality responsible for adding new elements
-	 * to the backend and wrap it in collection.
+	 * to the PPBE and wrap it in collection.
 	 *
 	 * Warning!!!
 	 * This view does NOT contain header with '+' button
 	 * It contains only details!
 	 */
-	Ferdinand.AdderView = Ferdinand.AbstractView.extend({
+	FD.AdderView = FD.AbstractView.extend({
 
 		el: null,
 
@@ -1497,7 +1502,7 @@
 
 			(options = options || { }).toggleable = true;
 
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 			this.modelDefaults = this.model.getBackups();
 
 			if (this.prerenderedTemplate) {
@@ -1541,7 +1546,7 @@
 	/**
 	 * Sorting view.
 	 */
-	Ferdinand.SorterView = Ferdinand.AbstractView.extend({
+	FD.SorterView = FD.AbstractView.extend({
 
 		/**
 		 * Collection to be sorted (on BE, not in memory).
@@ -1559,9 +1564,9 @@
 		 * Constructor.
 		 */
 		initialize : function(options) {
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 			if (!options || !options.el) {
-				Ferdinand.Log.error("El attribute has to be specified");
+				FD.Log.error("El attribute has to be specified");
 				return;
 			}
 		},
@@ -1605,12 +1610,12 @@
 	});
 
 
-	Ferdinand.AbstractFilterView = Ferdinand.AbstractView.extend({
+	FD.AbstractFilterView = FD.AbstractView.extend({
 
 		timerId : 0,
 
 		initialize : function(options) {
-			this.superinit(Ferdinand.AbstractView, options);
+			this.superinit(FD.AbstractView, options);
 		},
 
 		events : {
@@ -1652,7 +1657,7 @@
 	});
 
 	// export global vars
-	root.Ferdinand = Ferdinand;
+	root.FD = FD;
 
 	//allow usage of raw javascript inside templates
 	$.views.allowCode = true;

@@ -4,7 +4,12 @@
 (function(root) {
 
 	'use strict';
-
+	
+	if (typeof(String.prototype.endsWith) !== 'function') {
+	    String.prototype.endsWith = function(suffix) {
+	        return this.indexOf(suffix, this.length - suffix.length) !== -1;
+	    };
+	}
 
 	var Ferdinand = {
 
@@ -209,6 +214,8 @@
 		 * Default model attributes.
 		 */
 		defaults : { },
+		
+		endpoint : null,
 
 		/**
 		 * True or false depending on the information if any add request is being
@@ -278,6 +285,56 @@
 			return this;
 		},
 
+		url : function(options) {
+			
+			options || (options = { });
+			
+			var endpoint = options.endpoint || this.endpoint,
+				endpointparams = options.endpointparams || this.endpointparams,
+				slash = null,
+				pfunname = null,
+				pfun = null;
+			
+			if (endpoint) {
+				
+				if (endpointparams) {
+					for (var param in endpointparams) {
+					    if (endpointparams.hasOwnProperty(param)) {
+							
+					    	pfunname = endpointparams[param];
+							
+					    	switch (typeof(pfunname)) {
+					    		case 'undefined':
+					    			Ferdinand.Log.error('Endpoint parameter "' + param + '" mapping is missing');
+					    			return;
+					    		case 'function':
+					    			pfun = pfunname;
+					    			break;
+								default:
+									pfun = this[pfunname];
+							}
+							
+							if (typeof(pfun) === 'function') {
+							    endpoint = endpoint.replace(':' + param, pfun.call(this, options));
+							} else {
+								Ferdinand.Log.error('Endpoint parameter "' + param + '" function ' + pfunname + ' is missing');
+								return;
+							}
+					    }
+					}
+				}
+				
+				if (this.isNew()) {
+					return Ferdinand.url(endpoint);
+				} else {
+					slash = endpoint.endsWith('/') ? '' : '/';
+					return Ferdinand.url(endpoint + slash + this.get(this.idAttribute));
+				}
+			} else {
+				Ferdinand.Log.error('No endpoint specified for model');
+			}
+		},
+		
 		/**
 		 * Set backup attributes (data which is in-sync with backend).
 		 *
@@ -335,7 +392,7 @@
 
 			$.ajax(url, {
 				type : options.type || 'PUT',
-				async : options.async === undefined ? true : options.async,
+				async : typeof(options.async) === 'undefined' ? true : options.async,
 				context : this,
 				data : data,
 				dataType : 'json',
@@ -382,7 +439,7 @@
 				self.trigger("fetched", model, data, response);
 
 				if (success) {
-					success(model, response);
+					success(model, response, options, data);
 				}
 			};
 
@@ -390,7 +447,7 @@
 				self.handleMessages($.parseJSON(xhr.responseText) || { });
 				self.trigger("fetcherror", model, xhr);
 				if (error) {
-					error(model, xhr);
+					error(model, xhr, options);
 				}
 			};
 
@@ -405,7 +462,8 @@
 
 			var self = this,
 				success = null,
-				error = null;
+				error = null,
+				_response = null;
 
 			if (this.processing && this.ignoreWhenProcessing) {
 				Ferdinand.Log.warn('Ignore operation. Other request still in progress.', this);
@@ -414,14 +472,14 @@
 
 			this.processing = true;
 			this.trigger('processing', this, true);
-
 			this.trigger("saving");
 
 			options = options || { };
+			
 			success = options.success;
 			error = options.error;
 
-			options.success = function(model, response) {
+			options.success = function(model, response, options) {
 				var data = self.parse(response);
 				self.handleMessages(response);
 				self.setBackups(data);
@@ -429,17 +487,17 @@
 				self.trigger('processing', self, false);
 				self.trigger("saved", data);
 				if (success) {
-					success(model, response);
+					success(model, response, options, data);
 				}
 			};
 
-			options.error = function(model, xhr) {
+			options.error = function(model, xhr, options) {
 				self.handleMessages($.parseJSON(xhr.responseText) || { });
 				self.processing = false;
 				self.trigger('processing', self, false);
 				self.trigger("saveerror", model, xhr);
 				if (error) {
-					error(model, xhr);
+					error(model, xhr, options);
 				}
 			};
 
@@ -485,12 +543,25 @@
 		/**
 		 * Parse response. This will be called ONLY after HTTP 20x response
 		 */
-		parse: function(response, xhr) {
+		parse: function(response, options) {
+
 			if (!response) {
-				Ferdinand.Log.error("Response cannot be undefined!");
+				Ferdinand.Log.error("Response not found!", response);
 				return;
 			}
-			return response.data || { };
+
+			options || (options = { });
+
+			if (options.parser) {
+				if (options.parser instanceof Function) {
+					return options.parser(response, options);
+				} else {
+					Ferdinand.Log.error('Parser shall be a function instance', options.parser);
+					return;
+				}
+			}
+
+			return response;
 		},
 
 		/**
@@ -509,7 +580,7 @@
 	})
 	.extend(Ferdinand.Initializable)
 	.extend(Ferdinand.ContextStorage);
-
+	
 	/**
 	 * Compositre model used when one model is a child of other one - no data
 	 * relation - only logic and functional one.
@@ -548,544 +619,6 @@
 	});
 
 	/**
-	 * This is new abstract view for all Backbone views we will be using.
-	 */
-	Ferdinand.AbstractView = Backbone.View.extend({
-
-		tagName : 'none',
-
-		el : null,
-
-		validator : null,
-
-		template : null,
-
-		bindings : null,
-		
-		/**
-		 * Model binder.
-		 *
-		 * @private
-		 */
-		binder : new Backbone.ModelBinder(),
-
-		initialize : function(options) {
-
-			this.init(options);
-			this.initView(options);
-
-			if ((options || { }).toggleable) {
-				this.events = this.events || { };
-				$.extend(this.events, {
-					'click td[data-toggle="true"]': "onToggleableClick"
-				});
-			}
-		},
-
-		initView : function(options) {
-			if (options) {
-				if (options.el) {
-					this.el = options.el;
-				}
-				if (options.template) {
-					this.template = options.template;
-				}
-			}
-			if (this.model) {
-				if (this.model instanceof Function) {
-					this.model = new this.model();
-				}
-				this.bindModel();
-			}
-			if (this.collection && this.collection instanceof Function) {
-				this.collection = new this.collection();
-			}
-		},
-
-		showTooltips: function() {
-			if ($.fn.tooltip) {
-				this.$('[title]').tooltip({
-					delay    : 100,
-					predelay : 100,
-					offset   : [ -10, 0 ],
-					tipClass : "ui-tooltip-bottom",
-					events: {
-						def: "mouseenter, blur mouseleave"
-					}
-				});
-			} else {
-				Ferdinand.Log.error("jQuery Tooltip plugin is missing!");
-			}
-		},
-
-		setModel : function(model) {
-			this.model = model;
-		},
-
-		bindModel : function() {
-			//Backbone.ModelBinding.bind(this);
-			this.binder.bind(this.model, this.el, this.bindings);
-			return this;
-		},
-
-		load : function() {
-			this.model.fetch();
-			return this;
-		},
-
-		validate: function() {
-			var $form = this.$el.find('form');
-			if ($form.length) {
-				this.validator = $form.validate({
-					errorPlacement: function(error, element){
-						element.siblings('span').append(error);
-					}
-				});
-				return $form.valid();
-			} else {
-				return true;
-			}
-		},
-
-		render : function() {
-			var html = null;
-
-			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
-				return;
-			}
-
-			html = this.template.render(this.model);
-
-			// el <none> means that we haven't yet initialized DOM for this view and
-			// therefore setElement() has to be used to create new [el, $el] pair from
-			// rendered HTML
-
-			if (this.el.nodeName === "NONE") {
-				this.setElement(html);
-			} else {
-				this.$el.html(html);
-			}
-
-			this.bindModel();
-			this.showTooltips();
-			this.trigger("rendered");
-
-			return this;
-		},
-
-		clear : function() {
-			if (this.validator) {
-				this.validator.resetForm();
-			}
-			if (this.isComposite) {
-				this.model.parent().clear();
-			}
-			if (this.model && !(this.model instanceof Function)) {
-				this.model.clear();
-				this.bindModel();
-			}
-		},
-
-		cancel : function() {
-			if (this.validator) {
-				this.validator.resetForm();
-			}
-			if (this.model && !(this.model instanceof Function)) {
-				this.model.reset();
-			}
-		},
-
-		onToggleableClick: function(e) {
-			UIB.toggle($(e.currentTarget).parent().attr("data-toggle-id"));
-		}
-
-	})
-	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);
-
-	/**
-	 * Tabs container view.
-	 */
-	Ferdinand.TabsContainerView = Ferdinand.AbstractView.extend({
-
-		/**
-		 * Are tabs loaded?
-		 */
-		loaded : false,
-
-		/**
-		 * Tabs definition.
-		 */
-		tabs : { },
-
-		/**
-		 * View created on the base of tabs definition.
-		 */
-		views : null,
-
-		initialize : function(options) {
-			this.superinit(Ferdinand.AbstractView, options);
-			this.views = { };
-			UIB.on("toggling", this.onToggle); // bind toggling event so we can build tabs on row expansion
-		},
-
-		onTabSelect : function(event, ui) {
-			this.trigger("tabselect", event, ui);
-		},
-
-		/**
-		 * Will be called when user press on + sign in X item row (row expansion).
-		 *
-		 * @param iid - X item IID
-		 */
-		onToggle : function(iid, type) {
-
-			var tabid = null;
-
-			// return if toggling not this view or user is closing X item
-			if (iid !== this.model.cid || type !== "opening" || this.loaded) {
-				return;
-			}
-
-			// construct and bind tabs
-			this.$('.x-tabs').tabs({
-				show : this.onTabSelect,
-				selected : 0
-			});
-
-			// create views for all tabs
-			for (tabid in this.tabs) {
-
-				if (this.tabs.hasOwnProperty(tabid)) {
-
-					// if tab prototype is undefined (unknown function)
-					if (typeof(this.tabs[tabid]) !== 'undefined') {
-
-						// create new tab view
-						this.views[tabid] = new this.tabs[tabid]({
-							parent : this,
-							tabid : tabid
-						});
-
-						this.trigger("tabcreated", this.views[tabid]);
-
-					} else {
-						Ferdinand.Log.error("Prototype for tab '" + tabid + "' is undefined");
-					}
-				}
-			}
-
-			// tabs are now loaded
-			this.loaded = true;
-			this.trigger("tabsloaded", this.views);
-		},
-
-		/**
-		 * Render tabs container.
-		 *
-		 * @returns this object
-		 */
-		render : function() {
-			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
-				return;
-			}
-			this.setElement(this.template.render(this.model));
-			this.bindModel();
-			this.showTooltips();
-			this.trigger("rendered");
-			return this;
-		}
-	});
-
-	/**
-	 * Composite view.
-	 */
-	Ferdinand.CompositeView = Ferdinand.AbstractView.extend({
-
-		initialize: function(options) {
-
-			if (!options || !options.parent) {
-				Ferdinand.Log.error("Composite parent is required for Ferdinand.CompositeView");
-				return;
-			}
-
-			this.superinit(Ferdinand.AbstractView, options);
-			this.initComposite(options);
-		}
-
-	}).extend(Ferdinand.Composite);
-
-	/**
-	 * Single tab view.
-	 */
-	Ferdinand.TabView = Ferdinand.AbstractView.extend({
-
-		tabid : null,
-
-		initialize: function(options) {
-
-			if (!options || !options.parent) {
-				Ferdinand.Log.error("Composite parent is required for Ferdinand.TabView");
-				return;
-			}
-
-			this.superinit(Ferdinand.AbstractView, options);
-			this.initComposite(options);
-			this.initTab(options);
-
-			// some tabs can have no model attached
-			if (this.model) {
-
-				// but if there is model it has to be composite
-				if (!this.model.isComposite) {
-					Ferdinand.Log.error("Ferdinand.TabView requires model to be composite");
-					return;
-				}
-
-				// connect models (set parent-child relationship)
-				this.model.parent(this.parent().model);
-				this.model.on('fetched', this.onFetched);
-			}
-
-			// some have collection inside
-			if (this.collection) {
-
-				// and it also have to be composite
-				if (!this.collection.isComposite) {
-					Ferdinand.Log.error("Ferdinand.TabView requires collection to be composite");
-					return;
-				}
-
-				this.collection.parent(this.parent().model);
-				this.collection.on('fetched', this.onFetched);
-			}
-		},
-
-		/**
-		 * Initialize tab.
-		 */
-		initTab : function(options) {
-
-			// each tab required tabid to be initialized correctly
-			if (!options || !options.tabid) {
-				Ferdinand.Log.error("Attribute 'tabid' is required in Ferdinand.TabView initialization");
-				return;
-			}
-			this.tabid = options.tabid;
-
-			// set element to tab panel
-			this.setElement(this.parent().$(UIB.Tabs.getPanelSelector(this.tabid)));
-		},
-
-		/**
-		 * Called after data is fetched.
-		 *
-		 * @param model - updated model
-		 */
-		onFetched : function(data) {
-			this.render();
-		},
-
-		render : function() {
-			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
-				return;
-			}
-			this.$el.html(this.template.render(this.model || { })).show();
-			if (this.model) {
-				this.bindModel();
-			}
-			this.showTooltips();
-			this.trigger("rendered");
-			return this;
-		}
-
-	}).extend(Ferdinand.Composite);
-
-	/**
-	 * Abstract collection view.
-	 */
-	Ferdinand.AbstractCollectionView = Ferdinand.AbstractView.extend({
-
-		view : null,
-
-		subviews : null,
-
-		rendered : false,
-
-		initialize : function(options) {
-
-			this.superinit(Ferdinand.AbstractView, options);
-
-			// get sub views constructor
-			this.view = options.view;
-
-			// bind this view to the several collection events
-			this.collection.on('add', this.add);
-			this.collection.on('remove', this.remove);
-			this.collection.on('reset', this.reset);
-
-			this.subviews = [ ];
-
-			this.render();
-		},
-
-		/**
-		 * Handles add event
-		 */
-		add : function(item, collection, options) {
-			var index = options.index,
-				element,
-				subview,
-				view = new this.view({model : item, toggleable : true});
-
-			if (!view.rendered) {
-				view.render();
-			}
-			element = view.$el;
-
-			// if index is defined that means that this function
-			// was called as event handler for 'add' event on collection
-			if (index !== undefined) {
-				subview = this.subviews[index];
-				if (subview && subview.el) {
-					// this should be el (sic!) because $el would insert 11 (or more) new views
-					// because $el.length == 11 and insertBefore would iterete through all of them
-					element.insertBefore(subview.el);
-				} else {
-					// fallback if subview does NOT exist or does NOT contain el
-					// then just apppend view at the end
-					this.$el.append(element);
-				}
-				// array insert (splice works even if array is empty)
-				this.subviews.splice(index, 0, view);
-			} else {
-				this.$el.append(element);
-				this.subviews.push(view);
-			}
-		},
-
-		remove : function(item, collection, options) {
-			var index = options.index,
-				subview;
-			if (index !== undefined) {
-				subview = this.subviews[index];
-				if (subview) {
-					subview.$el.remove();
-					this.subviews.splice(index, 1); // array delete
-				}
-			}
-		},
-
-		reset : function(apis) {
-			this.empty();
-			this.addAllFromCollection();
-		},
-
-		addAllFromCollection : function() {
-			var self = this;
-			this.collection.each(function (item, index, list) {
-				self.add(item, list, {});
-			});
-		},
-
-		empty : function() {
-			this.subviews = [];
-			this.$el.empty();
-			return this;
-		},
-
-		render : function() {
-			this.empty();
-			this.addAllFromCollection();
-			this.rendered = true;
-			return this;
-		}
-
-	});
-
-	/**
-	 * This is abstract application class to be used by all backbone
-	 * applications.
-	 */
-	Ferdinand.Application = Backbone.Router.extend({
-
-		name: 'default',
-
-		routes: {
-			'' : void(0)
-		},
-
-		initialize : function(options) {
-
-			options = options || { };
-			options.root = document.location.pathname + '/';
-
-			this.getContextStorage().set('settings.' + this.name, options.settings || {});
-
-			this.superinit(Backbone.Router, options);
-			this.init(options);
-		},
-
-		/**
-		 * Starts the application, causes main data fetch.
-		 */
-		run : function() {
-			if (this.data) {
-				this.data.fetch({
-					success: this.onLoad,
-					error: this.onLoadError
-				});
-				this.onRun();
-			} else {
-				Ferdinand.Log.error('Data property is empty inside "run" method. You need to add data property in child class');
-			}
-			return this;
-		},
-
-		/**
-		 * Called after application run.
-		 */
-		onRun : function() {
-			// do nothing
-		},
-
-		/**
-		 * Called after data fetch success. Has to be overriden by child classes.
-		 */
-		onLoad : function () {
-			Ferdinand.Log.warn('Method onLoad in Application has not been overriden');
-		},
-
-		onLoadError : function(model, xhr, options) {
-
-			var app = this,
-				butthash = { },
-				response = $.parseJSON(xhr.responseText) || { },
-				messages = response.messages;
-
-			if (messages && messages.length > 0) {
-				UIB.message(messages);
-				return;
-			}
-
-			butthash[Drupal.t('Try again')] = function() {
-				$(this).dialog( "close" );
-				app.run();
-			};
-			butthash[Drupal.t('Cancel')] = function() {
-				$(this).dialog( "close" );
-			};
-			UIB.message(Drupal.t('There was problem with loading data. Would you like to try again?'), { buttons : butthash, type : 'error' });
-		}
-
-	})
-	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);
-
-	/**
 	 * Abstract collection
 	 */
 	Ferdinand.AbstractCollection = Backbone.Collection.extend({
@@ -1102,7 +635,9 @@
 		 * Handle messages from response.
 		 */
 		handleMessages : function(response) {
-			UIB.message(response.messages);
+			if (response.messages) {
+				Ferdinand.Log.info(response.messages)
+			}
 		},
 
 		/**
@@ -1161,13 +696,343 @@
 		/**
 		 * Build URL to get collection from.
 		 */
-		url: function() {
-			return Ferdinand.url(this.endpoint);
+		url: function(options) {
+			
+			options || (options = { });
+			
+			var endpoint = options.endpoint;
+			
+			var endpoint = options.endpoint || this.endpoint,
+				endpointparams = options.endpointparams || this.endpointparams,
+				pfunname = null,
+				pfun = null;
+			
+			if (endpoint) {
+				
+				if (endpointparams) {
+					for (var param in endpointparams) {
+					    if (endpointparams.hasOwnProperty(param)) {
+							
+					    	pfunname = endpointparams[param];
+							
+							switch (typeof(pfunname)) {
+								case 'undefined':
+									Ferdinand.Log.error('Endpoint parameter "' + param + '" mapping is missing in collection');
+									return;
+								case 'function':
+									pfun = pfunname;
+									break;
+								default:
+									pfun = this[pfunname];
+							}
+							
+							if (typeof(pfun) === 'function') {
+							    endpoint = endpoint.replace(':' + param, pfun.call(this, options));
+							} else {
+								Ferdinand.Log.error('Endpoint parameter "' + param + '" function ' + pfunname + ' is missing in collection');
+								return;
+							}
+					    }
+					}
+				}
+				
+				return Ferdinand.url(endpoint);
+			} else {
+				Ferdinand.Log.error('No endpoint specified for collection');
+			}
+		}
+		
+	})
+	.extend(Ferdinand.Initializable)
+	.extend(Ferdinand.ContextStorage);
+	
+	
+	/**
+	 * This is new abstract view for all Backbone views we will be using.
+	 */
+	Ferdinand.AbstractView = Backbone.View.extend({
+
+		tagName : 'none',
+
+		el : null,
+
+		validator : null,
+
+		template : null,
+
+		/**
+		 * Binding definitions.
+		 * 
+		 * @private
+		 */
+		bindings : null,
+		
+		/**
+		 * Model binder.
+		 *
+		 * @private
+		 */
+		binder : null,
+
+		initialize : function(options) {
+			this.init(options);
+			this.initView(options);
+		},
+
+		initView : function(options) {
+			
+			if (options) {
+				if (options.el) {
+					this.el = options.el;
+				}
+				if (options.template) {
+					this.template = options.template;
+				}
+				if (options.model) {
+					this.model = options.model;
+				}
+			}
+
+			if (this.binder === null) {
+				this.binder = new Backbone.ModelBinder();
+			}
+
+			if (this.model) {
+				if (this.model instanceof Function) {
+					this.model = new this.model();
+				}
+				this.bindModel();
+			}
+			if (this.collection && this.collection instanceof Function) {
+				this.collection = new this.collection();
+			}
+		},
+
+		setModel : function(model) {
+			this.model = model;
+		},
+
+		bindModel : function() {
+			// element has not yet been rendered
+			if (this.el.nodeName !== "NONE") {
+				this.binder.bind(this.model, this.$el, this.bindings, { suppressThrows : true });
+				this.trigger("bind", this.model);
+			}
+			return this;
+		},
+
+		load : function() {
+			this.model.fetch();
+			return this;
+		},
+
+		validate: function() {
+			// TODO implement backbone.validate
+			return true;
+		},
+
+		render : function() {
+			var html = null;
+
+			if (typeof(this.template) === 'undefined') {
+				Ferdinand.Log.error('View template cannot be undefined!');
+				return
+			} else if (typeof(this.template) === 'string') {
+				// convert selector to object
+				this.template = $(this.template);
+			}
+			
+			if (!this.template || this.template.length === 0) {
+				Ferdinand.Log.error('Template cannot be empty!');
+				return;
+			}
+
+			// as per jQuery 1.9, all HTML strings have to be worked thru 
+			// the $.parseHTML(..) function
+			
+			html = $.parseHTML(this.template.render(this.model));
+
+			// el <none> means that we haven't yet initialized DOM for this view and
+			// therefore setElement() has to be used to create new [el, $el] pair from
+			// rendered HTML
+
+			if (this.el.nodeName === "NONE") {
+				this.setElement(html);
+			} else {
+				this.$el.html(html);
+			}
+
+			this.bindModel();
+			this.trigger("rendered");
+
+			return this;
+		},
+
+		clear : function() {
+			if (this.validator) {
+				this.validator.resetForm();
+			}
+			if (this.isComposite) {
+				this.model.parent().clear();
+			}
+			if (this.model && !(this.model instanceof Function)) {
+				this.model.clear();
+				this.bindModel();
+			}
+		},
+
+		cancel : function() {
+			if (this.validator) {
+				this.validator.resetForm();
+			}
+			if (this.model && !(this.model instanceof Function)) {
+				this.model.reset();
+			}
 		}
 
 	})
 	.extend(Ferdinand.Initializable)
 	.extend(Ferdinand.ContextStorage);
+
+	/**
+	 * Composite view.
+	 */
+	Ferdinand.CompositeView = Ferdinand.AbstractView.extend({
+
+		initialize: function(options) {
+
+			if (!options || !options.parent) {
+				Ferdinand.Log.error("Composite parent is required for Ferdinand.CompositeView");
+				return;
+			}
+
+			this.superinit(Ferdinand.AbstractView, options);
+			this.initComposite(options);
+		}
+
+	}).extend(Ferdinand.Composite);
+
+
+	
+	
+	
+	/**
+	 * Abstract collection view.
+	 */
+	Ferdinand.AbstractCollectionView = Ferdinand.AbstractView.extend({
+
+		view : null,
+
+		subviews : null,
+
+		rendered : false,
+
+		initialize : function(options) {
+
+			this.superinit(Ferdinand.AbstractView, options);
+
+			// get sub views constructor
+			if (options.view) {
+				this.view = options.view;
+			}
+			if (!this.view) {
+				Ferdinand.Log.error("Child view constructor has to be defined");
+				return;
+			}
+
+			if (!this.collection) {
+				Ferdinand.Log.error("Collection object for abstract collection view has to be set");
+				return;
+			}
+			
+			// bind this view to the several collection events
+			this.collection.on('add', this.add);
+			this.collection.on('remove', this.remove);
+			this.collection.on('reset', this.reset);
+
+			this.subviews = [ ];
+
+			this.render();
+		},
+
+		/**
+		 * Handles add event
+		 */
+		add : function(item, collection, options) {
+			
+			var index = options.at,
+				element = null,
+				subview = null,
+				view = new this.view({
+					model : item, 
+					parent : this.isComposite ? this : null
+				});
+
+			if (!view.rendered) {
+				view.render();
+			}
+			element = view.$el;
+
+			// if index is defined that means that this function
+			// was called as event handler for 'add' event on collection
+			if (index !== undefined) {
+				subview = this.subviews[index];
+				if (subview && subview.el) {
+					// this should be el (sic!) because $el would insert many new views
+					// depending on $el.length and insertBefore would iterete through all of them
+					element.insertBefore(subview.el);
+				} else {
+					// fallback if subview does NOT exist or does NOT contain el
+					// then just apppend view at the end
+					this.$el.append(element);
+				}
+				// array insert (splice works even if array is empty)
+				this.subviews.splice(index, 0, view);
+			} else {
+				this.$el.append(element);
+				this.subviews.push(view);
+			}
+		},
+
+		remove : function(item, collection, options) {
+			var index = options.index,
+				subview;
+			if (index !== undefined) {
+				subview = this.subviews[index];
+				if (subview) {
+					subview.$el.remove();
+					this.subviews.splice(index, 1); // array delete
+				}
+			}
+		},
+
+		reset : function(apis) {
+			this.empty();
+			this.addAllFromCollection();
+		},
+
+		addAllFromCollection : function() {
+			var self = this;
+			this.collection.each(function (item, index, list) {
+				self.add(item, list, {});
+			});
+		},
+
+		empty : function() {
+			this.subviews = [];
+			this.$el.empty();
+			return this;
+		},
+
+		render : function() {
+			this.empty();
+			this.addAllFromCollection();
+			this.rendered = true;
+			return this;
+		}
+
+	});
+	
 
 	/**
 	 * Composite collection.
@@ -1219,8 +1084,8 @@
 		/**
 		 * Construct me.
 		 */
-		initialize : function(options) {
-			this.superinit(Ferdinand.AbstractCollection, options);
+		initialize : function(models, options) {
+			this.superinit(Ferdinand.AbstractCollection, models, options);
 		},
 
 		/**
@@ -1651,6 +1516,85 @@
 
 	});
 
+	/**
+	 * This is abstract application class to be used by all backbone
+	 * applications.
+	 */
+	Ferdinand.Application = Backbone.Router.extend({
+
+		name: 'default',
+
+		routes: {
+			'' : void(0)
+		},
+
+		initialize : function(options) {
+
+			options = options || { };
+			options.root = document.location.pathname + '/';
+
+			this.getContextStorage().set('settings.' + this.name, options.settings || {});
+
+			this.superinit(Backbone.Router, options);
+			this.init(options);
+		},
+
+		/**
+		 * Starts the application, causes main data fetch.
+		 */
+		run : function() {
+			if (this.data) {
+				this.data.fetch({
+					success: this.onLoad,
+					error: this.onLoadError
+				});
+				this.onRun();
+			} else {
+				Ferdinand.Log.error('Data property is empty inside "run" method. You need to add data property in child class');
+			}
+			return this;
+		},
+
+		/**
+		 * Called after application run.
+		 */
+		onRun : function() {
+			// do nothing
+		},
+
+		/**
+		 * Called after data fetch success. Has to be overriden by child classes.
+		 */
+		onLoad : function () {
+			Ferdinand.Log.warn('Method onLoad in Application has not been overriden');
+		},
+
+		onLoadError : function(model, xhr, options) {
+
+			var app = this,
+				butthash = { },
+				response = $.parseJSON(xhr.responseText) || { },
+				messages = response.messages;
+
+			if (messages && messages.length > 0) {
+				UIB.message(messages);
+				return;
+			}
+
+			butthash[Drupal.t('Try again')] = function() {
+				$(this).dialog( "close" );
+				app.run();
+			};
+			butthash[Drupal.t('Cancel')] = function() {
+				$(this).dialog( "close" );
+			};
+			UIB.message(Drupal.t('There was problem with loading data. Would you like to try again?'), { buttons : butthash, type : 'error' });
+		}
+
+	})
+	.extend(Ferdinand.Initializable)
+	.extend(Ferdinand.ContextStorage);	
+	
 	// export global vars
 	root.Ferdinand = Ferdinand;
 

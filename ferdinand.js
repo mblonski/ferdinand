@@ -1,4 +1,3 @@
-
 /*global Backbone, _, $, UIB, Drupal, console */
 
 (function(root) {
@@ -362,7 +361,7 @@
 		 * @public
 		 */
 		handleMessages : function(response) {
-			var messages = (response = response || { }).messages;
+			var messages = (response = (response || { })).messages;
 			if (messages) {
 				Ferdinand.Log.info("TODO: handle messages", messages);
 			} else {
@@ -385,7 +384,7 @@
 				url = this.url() + '/' + url;
 			}
 
-			options = options || { };
+			options || (options = { });
 
 			data = options.data;
 			data = typeof(data) === 'string' ? data : JSON.stringify(data) || null;
@@ -959,6 +958,8 @@
 		 * Handles add event
 		 */
 		add : function(item, collection, options) {
+			
+			options || (options = { });
 			
 			var index = options.at,
 				element = null,

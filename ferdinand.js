@@ -1,4 +1,4 @@
-/*global Backbone, _, $, UIB, Drupal, console */
+/*global Backbone, _, $, Drupal, console */
 
 (function(root) {
 
@@ -10,11 +10,51 @@
 	    };
 	}
 
+	// "test bubu {0} test {1}".format('foo', 'bar') => "test bubu foo test bar"
+	if (typeof(String.prototype.format) !== 'function') {
+		String.prototype.format = function(a) {
+			var args = arguments;
+			if (typeof(this) !== 'undefined') {
+				return this.replace(/{(\d+)}/g, function(match, number) {
+					return typeof(args[number]) !== 'undefined' ? args[number] : match;
+				});
+			}
+		};
+	}	
+
+	// min array value
+	Array.prototype.min = function() {
+		var min = this[0],
+			i = 0;
+		for (i = 1; i < this.length; i += 1) {
+			if (this[i] < min) {
+				min = this[i];
+			}
+		}
+		return min;
+	};
+
+	// max array value
+	Array.prototype.max = function() {
+		var max = this[0],
+			len = this.length,
+			i = 0;
+		for (i = 1; i < len; i++) { 
+			if (this[i] > max) {
+				max = this[i];
+			}
+		}
+		return max; 
+	};
+
+
 	var Ferdinand = {
 
 		debug : true,
 
-		settings: {},
+		settings: { },
+		
+		basepath : "",
 
 		get: function(path, callback) {
 			$.getJSON(Drupal.settings.basePath + path, callback);
@@ -289,12 +329,27 @@
 			options || (options = { });
 			
 			var endpoint = options.endpoint || this.endpoint,
-				endpointparams = options.endpointparams || this.endpointparams,
+				endpointparams = null,
+				endpointopts = null,
 				slash = null,
 				pfunname = null,
 				pfun = null;
 			
 			if (endpoint) {
+
+				if ($.isArray(endpoint)) {
+					Ferdinand.Log.error('Incorrect endpoint hash - cannot be array!');
+					return;
+				}
+
+				if (typeof(endpoint) === 'object') {
+					endpointparams = endpoint.params;
+					endpointopts = endpoint.opts;
+					endpoint = endpoint.url;
+				} else {
+					endpointparams = options.endpointparams || this.endpointparams;
+					endpointopts = options.endpointopts || this.endpointopts;
+				}
 				
 				if (endpointparams) {
 					for (var param in endpointparams) {
@@ -323,7 +378,9 @@
 					}
 				}
 				
-				if (this.isNew()) {
+				endpointopts || (endpointopts = { });
+				
+				if (this.isNew() || endpointopts.ignoreid) {
 					return Ferdinand.url(endpoint);
 				} else {
 					slash = endpoint.endsWith('/') ? '' : '/';
@@ -380,7 +437,7 @@
 
 			var data = null;
 
-			if (url.indexOf('/') === -1) {
+			if (url.indexOf('/') !== 0) {
 				url = this.url() + '/' + url;
 			}
 
@@ -702,11 +759,26 @@
 			var endpoint = options.endpoint;
 			
 			var endpoint = options.endpoint || this.endpoint,
-				endpointparams = options.endpointparams || this.endpointparams,
+				endpointparams = null,
+				endpointopts = null,
 				pfunname = null,
 				pfun = null;
 			
 			if (endpoint) {
+
+				if ($.isArray(endpoint)) {
+					Ferdinand.Log.error('Incorrect endpoint hash - cannot be array!');
+					return;
+				}
+
+				if (typeof(endpoint) === 'object') {
+					endpointparams = endpoint.params;
+					endpointopts = endpoint.opts;
+					endpoint = endpoint.url;
+				} else {
+					endpointparams = options.endpointparams || this.endpointparams;
+					endpointopts = options.endpointopts || this.endpointopts;
+				}				
 				
 				if (endpointparams) {
 					for (var param in endpointparams) {
@@ -740,7 +812,6 @@
 				Ferdinand.Log.error('No endpoint specified for collection');
 			}
 		}
-		
 	})
 	.extend(Ferdinand.Initializable)
 	.extend(Ferdinand.ContextStorage);
@@ -996,9 +1067,13 @@
 		},
 
 		remove : function(item, collection, options) {
+
+			options || (options = { });
+
 			var index = options.index,
-				subview;
-			if (index !== undefined) {
+				subview = null;
+
+			if (typeof(index) !== 'undefined') {
 				subview = this.subviews[index];
 				if (subview) {
 					subview.$el.remove();

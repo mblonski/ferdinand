@@ -692,7 +692,7 @@
 		 */
 		handleMessages : function(response) {
 			if (response.messages) {
-				Ferdinand.Log.info(response.messages)
+				Ferdinand.Log.info(response.messages);
 			}
 		},
 

@@ -1,4 +1,4 @@
-// Backbone.ModelBinder v1.0.2
+// Backbone.ModelBinder v1.0.5
 // (c) 2013 Bart Wood
 // Distributed Under MIT License
 
@@ -8,7 +8,7 @@
         define(['underscore', 'jquery', 'backbone'], factory);
     } else {
         // Browser globals
-        factory(_, $, Backbone);
+        factory(_, jQuery, Backbone);
     }
 }(function(_, $, Backbone){
 
@@ -17,7 +17,7 @@
     }
 
     Backbone.ModelBinder = function(){
-        _.bindAll(this);
+        _.bindAll.apply(_, [this].concat(_.functions(this)));
     };
 
     // Static setter for class level options
@@ -26,7 +26,7 @@
     };
 
     // Current version of the library.
-    Backbone.ModelBinder.VERSION = '1.0.2';
+    Backbone.ModelBinder.VERSION = '1.0.5';
     Backbone.ModelBinder.Constants = {};
     Backbone.ModelBinder.Constants.ModelToView = 'ModelToView';
     Backbone.ModelBinder.Constants.ViewToModel = 'ViewToModel';
@@ -85,7 +85,7 @@
             this._options['modelSetOptions'].changeSource = 'ModelBinder';
 
             if(!this._options['changeTriggers']){
-                this._options['changeTriggers'] = {'*': 'change', '[contenteditable]': 'blur'};
+                this._options['changeTriggers'] = {'': 'change', '[contenteditable]': 'blur'};
             }
 
             if(!this._options['initialCopyDirection']){
@@ -310,7 +310,7 @@
 
                 for (elementBindingCount = 0; elementBindingCount < attributeBinding.elementBindings.length; elementBindingCount++) {
                     elementBinding = attributeBinding.elementBindings[elementBindingCount];
-
+                    
                     for (boundElCount = 0; boundElCount < elementBinding.boundEls.length; boundElCount++) {
                         boundEl = elementBinding.boundEls[boundElCount];
 
@@ -344,6 +344,10 @@
             for (elementBindingCount = 0; elementBindingCount < attributeBinding.elementBindings.length; elementBindingCount++) {
                 elementBinding = attributeBinding.elementBindings[elementBindingCount];
 
+                if (!elementBinding.boundEls) {
+                	break;
+                }
+                
                 for (boundElCount = 0; boundElCount < elementBinding.boundEls.length; boundElCount++) {
                     boundEl = elementBinding.boundEls[boundElCount];
 
@@ -406,19 +410,9 @@
             if(el.attr('type')){
                 switch (el.attr('type')) {
                     case 'radio':
-                        if (el.val() === convertedValue) {
-                            // must defer the change trigger or the change will actually fire with the old value
-                            el.prop('checked') || _.defer(function() { el.trigger('change'); });
-                            el.prop('checked', true);
-                        }
-                        else {
-                            // must defer the change trigger or the change will actually fire with the old value
-                            el.prop('checked', false);
-                        }
+                        el.prop('checked', el.val() === convertedValue);
                         break;
                     case 'checkbox':
-                         // must defer the change trigger or the change will actually fire with the old value
-                         el.prop('checked') === !!convertedValue || _.defer(function() { el.trigger('change') });
                          el.prop('checked', !!convertedValue);
                         break;
                     case 'file':
@@ -475,8 +469,12 @@
         },
 
         _getConvertedValue: function (direction, elementBinding, value) {
+
             if (elementBinding.converter) {
                 value = elementBinding.converter(direction, value, elementBinding.attributeBinding.attributeName, this._model, elementBinding.boundEls);
+            }
+            else if(this._options['converter']){
+                value = this._options['converter'](direction, value, elementBinding.attributeBinding.attributeName, this._model, elementBinding.boundEls);
             }
 
             return value;
@@ -484,7 +482,7 @@
 
         _throwException: function(message){
             if(this._options.suppressThrows){
-                if(console && console.error){
+                if(typeof(console) !== 'undefined' && console.error){
                     console.error(message);
                 }
             }

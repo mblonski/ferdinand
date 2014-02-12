@@ -1,9 +1,9 @@
-/*global Backbone, _, $, Drupal, console */
+/*global Backbone, _, $, console */
 
 (function(root) {
 
 	'use strict';
-	
+
 	if (typeof(String.prototype.endsWith) !== 'function') {
 	    String.prototype.endsWith = function(suffix) {
 	        return this.indexOf(suffix, this.length - suffix.length) !== -1;
@@ -20,7 +20,7 @@
 				});
 			}
 		};
-	}	
+	}
 
 	// min array value
 	Array.prototype.min = function() {
@@ -39,33 +39,28 @@
 		var max = this[0],
 			len = this.length,
 			i = 0;
-		for (i = 1; i < len; i++) { 
+		for (i = 1; i < len; i++) {
 			if (this[i] > max) {
 				max = this[i];
 			}
 		}
-		return max; 
+		return max;
 	};
-
 
 	var Ferdinand = {
 
 		debug : true,
 
 		settings: { },
-		
-		basepath : "",
+
+		basePath : "",
 
 		get: function(path, callback) {
-			$.getJSON(Drupal.settings.basePath + path, callback);
+			$.getJSON(this.basePath + path, callback);
 		},
 
 		url : function(path, basePathOnly) {
-			var base = Drupal.settings.basePath;
-
-			if (!basePathOnly && Drupal.settings.languageCount > 1) {
-				base = base + Drupal.settings.oapi18n.prefix;
-			}
+			var base = this.basePath;
 
 			if (base.substring(base.length - 1, base.length) !== '/') {
 				base = base + '/';
@@ -74,6 +69,56 @@
 				path = path.substring(1);
 			}
 			return base + path;
+		},
+
+		parse : function(response, options) {
+
+			if (!response) {
+				Ferdinand.Log.error("Response not found!", response);
+				return;
+			}
+
+			options || (options = { });
+
+			if (options.parser) {
+				if (options.parser instanceof Function) {
+					return options.parser(response, options);
+				} else {
+					Ferdinand.Log.error('Parser shall be a function instance', options.parser);
+					return [ ];
+				}
+			}
+
+			return response;
+		},
+		
+		/**
+		 * Handle messages from response.
+		 */
+		handleMessages : function(response) {
+
+			if (typeof response === 'string') {
+				try {
+					//Prior to jQuery 1.9, $.parseJSON returned null instead of throwing an error if it was passed an
+					//empty string, null, or undefined, even though those are not valid JSON.
+					//Since we are using > 1.9 when exception handling must be added.
+					response = $.parseJSON(response);
+				} catch(e) {
+					Ferdinand.Log.warn('Response does not contain a valid JSON string, hence empty object will be used', e);
+				}
+			}
+
+			response = response || {};
+
+			if (response.messages) {
+				Ferdinand.Log.info("Received messages:", response.messages);
+			}
+			if (response.status) {
+				Ferdinand.Log.info("Received status:", response.status);
+			}
+			if (response.error) {
+				Ferdinand.Log.info("Received error message:", response.error);
+			}
 		}
 
 	};
@@ -254,6 +299,13 @@
 		 */
 		defaults : { },
 		
+		/**
+		 * This is the list of persistent model attributes, which means that if one 
+		 * specify this property, only values matching the ones inside of it, will 
+		 * be persisted to backend server. All other attributes will be simply ignored. 
+		 */
+		persistent : null,
+
 		endpoint : null,
 
 		/**
@@ -325,16 +377,16 @@
 		},
 
 		url : function(options) {
-			
+
 			options || (options = { });
-			
+
 			var endpoint = options.endpoint || this.endpoint,
 				endpointparams = null,
 				endpointopts = null,
 				slash = null,
 				pfunname = null,
 				pfun = null;
-			
+
 			if (endpoint) {
 
 				if ($.isArray(endpoint)) {
@@ -350,13 +402,13 @@
 					endpointparams = options.endpointparams || this.endpointparams;
 					endpointopts = options.endpointopts || this.endpointopts;
 				}
-				
+
 				if (endpointparams) {
 					for (var param in endpointparams) {
 					    if (endpointparams.hasOwnProperty(param)) {
-							
+
 					    	pfunname = endpointparams[param];
-							
+
 					    	switch (typeof(pfunname)) {
 					    		case 'undefined':
 					    			Ferdinand.Log.error('Endpoint parameter "' + param + '" mapping is missing');
@@ -367,7 +419,7 @@
 								default:
 									pfun = this[pfunname];
 							}
-							
+
 							if (typeof(pfun) === 'function') {
 							    endpoint = endpoint.replace(':' + param, pfun.call(this, options));
 							} else {
@@ -377,9 +429,9 @@
 					    }
 					}
 				}
-				
+
 				endpointopts || (endpointopts = { });
-				
+
 				if (this.isNew() || endpointopts.ignoreid) {
 					return Ferdinand.url(endpoint);
 				} else {
@@ -390,7 +442,7 @@
 				Ferdinand.Log.error('No endpoint specified for model');
 			}
 		},
-		
+
 		/**
 		 * Set backup attributes (data which is in-sync with backend).
 		 *
@@ -409,21 +461,6 @@
 		 */
 		getBackups : function() {
 			return _.clone(this.backups);
-		},
-
-		/**
-		 * Handle messages from response.
-		 *
-		 * @param response - HTTP response data containing messages array
-		 * @public
-		 */
-		handleMessages : function(response) {
-			var messages = (response = (response || { })).messages;
-			if (messages) {
-				Ferdinand.Log.info("TODO: handle messages", messages);
-			} else {
-				Ferdinand.Log.warn("No messages in response");
-			}
 		},
 
 		/**
@@ -451,16 +488,16 @@
 				async : typeof(options.async) === 'undefined' ? true : options.async,
 				context : this,
 				data : data,
-				dataType : 'json',
-				contentType : 'application/json',
+				dataType : options.dataType || 'json',
+				contentType : options.contentType || 'application/json',
 				success : function(response) {
-					this.handleMessages(response);
+					Ferdinand.handleMessages(response);
 					if (options.success) {
 						options.success(this, response);
 					}
 				},
 				error : function(xhr) {
-					this.handleMessages($.parseJSON(xhr.responseText));
+					Ferdinand.handleMessages(xhr.responseText);
 					if (options.error) {
 						options.error(this, xhr);
 					}
@@ -486,10 +523,10 @@
 			options = options || { };
 			success = options.success;
 			error = options.error;
-
+			
 			options.success = function(model, response) {
 				var data = self.parse(response);
-				self.handleMessages(response);
+				Ferdinand.handleMessages(response);
 				self.setBackups(data);
 
 				self.trigger("fetched", model, data, response);
@@ -500,7 +537,7 @@
 			};
 
 			options.error = function(model, xhr) {
-				self.handleMessages($.parseJSON(xhr.responseText) || { });
+				Ferdinand.handleMessages(xhr.responseText);
 				self.trigger("fetcherror", model, xhr);
 				if (error) {
 					error(model, xhr, options);
@@ -531,13 +568,13 @@
 			this.trigger("saving");
 
 			options = options || { };
-			
+
 			success = options.success;
 			error = options.error;
 
 			options.success = function(model, response, options) {
 				var data = self.parse(response);
-				self.handleMessages(response);
+				Ferdinand.handleMessages(response);
 				self.setBackups(data);
 				self.processing = false;
 				self.trigger('processing', self, false);
@@ -548,7 +585,7 @@
 			};
 
 			options.error = function(model, xhr, options) {
-				self.handleMessages($.parseJSON(xhr.responseText) || { });
+				Ferdinand.handleMessages(xhr.responseText);
 				self.processing = false;
 				self.trigger('processing', self, false);
 				self.trigger("saveerror", model, xhr);
@@ -557,6 +594,16 @@
 				}
 			};
 
+			// in case when persistent fields are defined, we have to filter
+			// attributes to be saved. we can do that by setting options.attrs, 
+			// which will tell BB to override the default attributes set with the
+			// one specified in options (please note that field name in options
+			// must be set to "attrs", it won't work otherwise)
+			
+			if (this.persistent) {
+				options.attrs = attributes = _.pick(_.isEmpty(attributes) ? this.toJSON() : attributes, this.persistent); 
+			}
+			
 			// call original fetch from prototype
 			Backbone.Model.prototype.save.call(this, attributes, options);
 		},
@@ -576,7 +623,7 @@
 
 			options.success = function(model, response) {
 				var data = self.parse(response);
-				self.handleMessages(response);
+				Ferdinand.handleMessages(response);
 				self.setBackups(data || { });
 				self.trigger("deleted", data);
 				if (success) {
@@ -585,7 +632,7 @@
 			};
 
 			options.error = function(model, response) {
-				self.handleMessages($.parseJSON(response.responseText) || { });
+				Ferdinand.handleMessages(response.responseText);
 				self.trigger("deleterror", model, response);
 				if (error) {
 					error(model, response);
@@ -599,26 +646,7 @@
 		/**
 		 * Parse response. This will be called ONLY after HTTP 20x response
 		 */
-		parse: function(response, options) {
-
-			if (!response) {
-				Ferdinand.Log.error("Response not found!", response);
-				return;
-			}
-
-			options || (options = { });
-
-			if (options.parser) {
-				if (options.parser instanceof Function) {
-					return options.parser(response, options);
-				} else {
-					Ferdinand.Log.error('Parser shall be a function instance', options.parser);
-					return;
-				}
-			}
-
-			return response;
-		},
+		parse: Ferdinand.parse,
 
 		/**
 		 * This function will clear model attributes and automatically set
@@ -636,7 +664,7 @@
 	})
 	.extend(Ferdinand.Initializable)
 	.extend(Ferdinand.ContextStorage);
-	
+
 	/**
 	 * Compositre model used when one model is a child of other one - no data
 	 * relation - only logic and functional one.
@@ -688,12 +716,45 @@
 		},
 
 		/**
-		 * Handle messages from response.
+		 * Function invoked for all Model's Ajax calls
+		 *
+		 * @param url - short eg. 'synchronize' if url has same base as model or full path for different paths
+		 * @param options - array with options that can be passed to ajax() method of jQuery
+		 * @public
 		 */
-		handleMessages : function(response) {
-			if (response.messages) {
-				Ferdinand.Log.info(response.messages);
+		ajax : function(url, options) {
+
+			var data = null;
+
+			if (url.indexOf('/') !== 0) {
+				url = this.url() + '/' + url;
 			}
+
+			options || (options = { });
+
+			data = options.data;
+			data = typeof(data) === 'string' ? data : JSON.stringify(data) || null;
+
+			$.ajax(url, {
+				type : options.type || 'PUT',
+				async : typeof(options.async) === 'undefined' ? true : options.async,
+				context : this,
+				data : data,
+				dataType : options.dataType || 'json',
+				contentType : options.contentType || 'application/json',
+				success : function(response) {
+					Ferdinand.handleMessages(response);
+					if (options.success) {
+						options.success(this, response);
+					}
+				},
+				error : function(xhr) {
+					Ferdinand.handleMessages(xhr.responseText);
+					if (options.error) {
+						options.error(this, xhr);
+					}
+				}
+			});
 		},
 
 		/**
@@ -711,11 +772,9 @@
 			options = options || { };
 			success = options.success;
 			error = options.error;
-
-			options.parse = false;
-
+			
 			options.success = function(collection, response) {
-				self.handleMessages(response);
+				Ferdinand.handleMessages(response);
 				self.trigger("fetched", collection, response);
 				if (success) {
 					success(collection, response);
@@ -723,7 +782,7 @@
 			};
 
 			options.error = function(collection, response) {
-				self.handleMessages($.parseJSON(response.responseText));
+				Ferdinand.handleMessages(response.responseText);
 				self.trigger("fetcherror", collection);
 				if (error) {
 					error(collection, response);
@@ -732,38 +791,37 @@
 
 			// call original fetch from prototype
 			Backbone.Collection.prototype.fetch.call(this, options);
+			
+			return this;
 		},
 
 		doFetch : function() {
 			this.fetch({
 				success : this.onPageLoad,
-				error : this.onPageLoadError,
-				parse : false
+				error : this.onPageLoadError
 			});
 		},
 
 		/**
-		 * Parse request and return collection elements.
+		 * Parse response. This will be called ONLY after HTTP 20x response
 		 */
-		parse : function(response, xhr) {
-			return response.data;
-		},
+		parse: Ferdinand.parse,
 
 		/**
 		 * Build URL to get collection from.
 		 */
 		url: function(options) {
-			
+
 			options || (options = { });
-			
+
 			var endpoint = options.endpoint;
-			
+
 			var endpoint = options.endpoint || this.endpoint,
 				endpointparams = null,
 				endpointopts = null,
 				pfunname = null,
 				pfun = null;
-			
+
 			if (endpoint) {
 
 				if ($.isArray(endpoint)) {
@@ -778,14 +836,14 @@
 				} else {
 					endpointparams = options.endpointparams || this.endpointparams;
 					endpointopts = options.endpointopts || this.endpointopts;
-				}				
-				
+				}
+
 				if (endpointparams) {
 					for (var param in endpointparams) {
 					    if (endpointparams.hasOwnProperty(param)) {
-							
+
 					    	pfunname = endpointparams[param];
-							
+
 							switch (typeof(pfunname)) {
 								case 'undefined':
 									Ferdinand.Log.error('Endpoint parameter "' + param + '" mapping is missing in collection');
@@ -796,7 +854,7 @@
 								default:
 									pfun = this[pfunname];
 							}
-							
+
 							if (typeof(pfun) === 'function') {
 							    endpoint = endpoint.replace(':' + param, pfun.call(this, options));
 							} else {
@@ -806,7 +864,7 @@
 					    }
 					}
 				}
-				
+
 				return Ferdinand.url(endpoint);
 			} else {
 				Ferdinand.Log.error('No endpoint specified for collection');
@@ -815,8 +873,8 @@
 	})
 	.extend(Ferdinand.Initializable)
 	.extend(Ferdinand.ContextStorage);
-	
-	
+
+
 	/**
 	 * This is new abstract view for all Backbone views we will be using.
 	 */
@@ -826,17 +884,20 @@
 
 		el : null,
 
+		/**
+		 * @private
+		 */
 		validator : null,
 
 		template : null,
 
 		/**
 		 * Binding definitions.
-		 * 
+		 *
 		 * @private
 		 */
 		bindings : null,
-		
+
 		/**
 		 * Model binder.
 		 *
@@ -850,6 +911,8 @@
 		},
 
 		initView : function(options) {
+
+			var model = this.model;
 			
 			if (options) {
 				if (options.el) {
@@ -859,7 +922,10 @@
 					this.template = options.template;
 				}
 				if (options.model) {
-					this.model = options.model;
+					model = options.model;
+				}
+				if (options.collection) {
+					this.collection = options.collection;
 				}
 			}
 
@@ -867,14 +933,46 @@
 				this.binder = new Backbone.ModelBinder();
 			}
 
-			if (this.model) {
-				if (this.model instanceof Function) {
-					this.model = new this.model();
+			if (model) {
+				if (this.model) {
+					this.unbindModel();
 				}
+				if (model instanceof Function) {
+					model = new model();
+				}
+				this.model = model;
 				this.bindModel();
 			}
+
 			if (this.collection && this.collection instanceof Function) {
 				this.collection = new this.collection();
+			}
+			
+			if (this.events) {
+				
+				var events = this.events || { };
+				
+				for (var key in events) {
+					
+					var method = events[key];
+			        if (!_.isFunction(method)) {
+			        	method = this[events[key]];
+			        }
+			        if (!method) {
+			        	Ferdinand.Log.error("Event callback is not a function", events[key]);
+			        	continue;
+			        }
+
+			        var match = key.match(/^(\S+)\s*(.*)$/),
+			        	eventName = match[1],
+			        	selector = match[2];
+					
+			        // this as selector means we must bind event to view
+			        if (selector == "this") {
+			        	this.unbind(eventName);
+			        	this.bind(eventName, method);
+			        }
+				}
 			}
 		},
 
@@ -882,11 +980,35 @@
 			this.model = model;
 		},
 
+		isDomCreated : function() {
+			return this.el.nodeName.toLowerCase() !== "none";
+		},
+		
+		unbindModel : function() {
+			if (this.isDomCreated()) {
+				if (this.model.validation) {
+					if (typeof(this.model.unbind) === "function") {
+						this.model.unbind("validated:invalid");
+					}
+					Backbone.Validation.unbind(this);
+				}
+				this.binder.unbind();
+				this.trigger("unbind", this.model);
+			}
+		},
+
 		bindModel : function() {
-			// element has not yet been rendered
-			if (this.el.nodeName !== "NONE") {
+			// element node name 'none' means that element has not yet been rendered
+			if (this.isDomCreated()) {
 				this.binder.bind(this.model, this.$el, this.bindings, { suppressThrows : true });
 				this.trigger("bind", this.model);
+				if (this.model.validation) {
+					var view = this;
+					Backbone.Validation.bind(this);
+					this.model.bind("validated:invalid", function(model, errors) {
+						view.trigger("validated:invalid", model, errors)
+					});
+				}
 			}
 			return this;
 		},
@@ -896,37 +1018,32 @@
 			return this;
 		},
 
-		validate: function() {
-			// TODO implement backbone.validate
-			return true;
-		},
-
 		render : function() {
 			var html = null;
 
 			if (typeof(this.template) === 'undefined') {
 				Ferdinand.Log.error('View template cannot be undefined!');
-				return
+				return;
 			} else if (typeof(this.template) === 'string') {
 				// convert selector to object
 				this.template = $(this.template);
 			}
-			
+
 			if (!this.template || this.template.length === 0) {
 				Ferdinand.Log.error('Template cannot be empty!');
 				return;
 			}
 
-			// as per jQuery 1.9, all HTML strings have to be worked thru 
+			// as per jQuery 1.9, all HTML strings have to be worked thru
 			// the $.parseHTML(..) function
-			
+
 			html = $.parseHTML(this.template.render(this.model));
 
 			// el <none> means that we haven't yet initialized DOM for this view and
 			// therefore setElement() has to be used to create new [el, $el] pair from
 			// rendered HTML
 
-			if (this.el.nodeName === "NONE") {
+			if (!this.isDomCreated()) {
 				this.setElement(html);
 			} else {
 				this.$el.html(html);
@@ -983,9 +1100,9 @@
 	}).extend(Ferdinand.Composite);
 
 
-	
-	
-	
+
+
+
 	/**
 	 * Abstract collection view.
 	 */
@@ -1014,7 +1131,7 @@
 				Ferdinand.Log.error("Collection object for abstract collection view has to be set");
 				return;
 			}
-			
+
 			// bind this view to the several collection events
 			this.collection.on('add', this.add);
 			this.collection.on('remove', this.remove);
@@ -1029,14 +1146,14 @@
 		 * Handles add event
 		 */
 		add : function(item, collection, options) {
-			
+
 			options || (options = { });
-			
+
 			var index = options.at,
 				element = null,
 				subview = null,
 				view = new this.view({
-					model : item, 
+					model : item,
 					parent : this.isComposite ? this : null
 				});
 
@@ -1101,6 +1218,12 @@
 		},
 
 		render : function() {
+			
+			if (this.el.nodeName === "NONE") {
+				Ferdinand.Log.error("Collection view element has not been found");
+				return;
+			}
+			
 			this.empty();
 			this.addAllFromCollection();
 			this.rendered = true;
@@ -1108,7 +1231,7 @@
 		}
 
 	});
-	
+
 
 	/**
 	 * Composite collection.
@@ -1145,7 +1268,7 @@
 		/**
 		 * Items filter.
 		 */
-		filter : "",
+		filter : { },
 
 		/**
 		 * Items sorted by.
@@ -1172,7 +1295,7 @@
 				params = {
 					page : this.page,
 					limit : this.limit,
-					filter : $.param(this.filter),
+					filter : $.param(this.filter || {}),
 					sortBy : this.sortBy,
 					order : this.order
 				};
@@ -1254,7 +1377,7 @@
 				this.page = this.page - 1;
 				this.doFetch();
 			} else {
-				Ferdinand.Log.warn('This is firs page');
+				Ferdinand.Log.warn('This is first page');
 			}
 		},
 
@@ -1268,7 +1391,6 @@
 		},
 
 		onPageLoad : function(data) {
-			Ferdinand.Log.info('Page ' + this.page + ' has been loaded');
 			this.trigger('pageload', this.pageInfo());
 		},
 
@@ -1297,58 +1419,73 @@
 		events : {
 			'click a.prev-page' : 'previous',
 			'click a.next-page' : 'next',
-			'change select.pager-select' : 'gotoPage'
+			'change select.pager-select' : 'onPageChange',
+			'change select.pager-options' : 'onLimitChange'
 		},
 
 		initialize : function(options) {
 
 			this.superinit(Ferdinand.AbstractView, options);
-			if (!options || !options.name) {
-				Ferdinand.Log.error("Name attribute has to be specified");
-				return;
-			}
-
-			this.name = options.name;
-
-			// get paging template
-			this.template = UIB.Paging.template();
-
-			// bind to the paging changelimit event
-			UIB.Paging.bind('changelimit', this.reset);
 
 			// bind to the collection pageload event
-			this.collection.bind('pageload', this.render);
+			this.collection.bind('pageload', this.updatePager);
+			this.collection.bind('fetched', this.updatePager);
+			
+			this.render();
 		},
 
-		reset : function(limit, name) {
-			if (name !== this.name) {
-				return;
+		updatePager : function() {
+			
+			var info = this.collection.pageInfo(),
+				$select = this.$('select.pager-select'),
+				html = "",
+				i = 0, p = 0;
+			
+			$select.empty();
+			
+			for (i = 0; i < info.paging.length; i++) {
+				p = info.paging[i].page;
+				html += "<option val='" + p + "'>" + p + "</oprion>";  
 			}
-			this.collection.page = 1;
-			this.collection.limit = limit;
-			this.collection.reloadPage();
+			
+			$select.html(html).val(info.page + 1);
 		},
-
-		/**
-		 * Render view.
-		 */
+		
 		render : function() {
+			var html = null;
 
-			// HTML element ID is hardcoded in UIB template, it will always be 'x-pager-links-xxx'
-			// where xxx is ID attribute from input args, e.g. 'x-pager-links-apis'
-			var element = $('.x-pager-links-' + this.name);
+			if (typeof(this.template) === 'undefined') {
+				Ferdinand.Log.error('Template for pager view must be specified!');
+				return;
+			} else if (typeof(this.template) === 'string') {
+				// convert selector to object
+				this.template = $(this.template);
+			}
 
 			if (!this.template || this.template.length === 0) {
-				Ferdinand.Log.error('Template cannot be empty!');
+				Ferdinand.Log.error('Template for pager view has not been found!');
 				return;
 			}
 
-			element.html(this.template.render(this.collection.pageInfo()));
-			$('.x-pager-options').change(function() {
-				UIB.Paging.changeLimit($(this));
-			});
-			element.show();
-			this.setElement(element);
+			// as per jQuery 1.9, all HTML strings have to be worked thru
+			// the $.parseHTML(..) function
+
+			html = $.parseHTML(this.template.render(this.collection.pageInfo()));
+
+			// el <none> means that we haven't yet initialized DOM for this view and
+			// therefore setElement() has to be used to create new [el, $el] pair from
+			// rendered HTML
+
+			if (!(this.el && this.el.nodeType)) {
+				Ferdinand.Log.error("Pager view element (el param) has not been found");
+				return;
+			}
+			
+			if (this.el.nodeName === "NONE") {
+				this.setElement(html);
+			} else {
+				this.$el.html(html);
+			}
 
 			return this;
 		},
@@ -1370,8 +1507,19 @@
 		/**
 		 * Load specific page (will take page number from select value).
 		 */
-		gotoPage : function(event) {
+		onPageChange : function(event) {
 			this.collection.loadPage(parseInt($(event.currentTarget).val(), 10));
+		},
+
+		/**
+		 * Change limit (will take limit number from select value).
+		 */
+		onLimitChange :  function(event) {
+			
+			this.collection.limit = parseInt($(event.currentTarget).val(), 10);
+			this.collection.loadPage(1);
+			
+			this.$('select.pager-options').val(this.collection.limit);
 		}
 
 	});
@@ -1624,10 +1772,8 @@
 					success: this.onLoad,
 					error: this.onLoadError
 				});
-				this.onRun();
-			} else {
-				Ferdinand.Log.error('Data property is empty inside "run" method. You need to add data property in child class');
 			}
+			this.onRun();
 			return this;
 		},
 
@@ -1669,8 +1815,8 @@
 
 	})
 	.extend(Ferdinand.Initializable)
-	.extend(Ferdinand.ContextStorage);	
-	
+	.extend(Ferdinand.ContextStorage);
+
 	// export global vars
 	root.Ferdinand = Ferdinand;
 

@@ -1219,7 +1219,7 @@
 
 		render : function() {
 			
-			if (this.el.nodeName === "NONE") {
+			if (!this.isDomCreated()) {
 				Ferdinand.Log.error("Collection view element has not been found");
 				return;
 			}

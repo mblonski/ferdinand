@@ -915,9 +915,6 @@
 			var model = this.model;
 			
 			if (options) {
-				if (options.el) {
-					this.el = options.el;
-				}
 				if (options.template) {
 					this.template = options.template;
 				}
@@ -1445,7 +1442,7 @@
 			
 			for (i = 0; i < info.paging.length; i++) {
 				p = info.paging[i].page;
-				html += "<option val='" + p + "'>" + p + "</oprion>";  
+				html += "<option val='" + p + "'>" + p + "</option>";  
 			}
 			
 			$select.html(html).val(info.page + 1);
